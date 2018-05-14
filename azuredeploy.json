@@ -1,0 +1,456 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "location": {
+            "defaultValue": "westus",
+            "allowedValues": [
+                "westus",
+                "eastus",
+                "westeurope",
+                "southeastasia",
+                "westus2"
+            ],
+            "type": "string"
+        },
+        "pr_review_image": {
+            "defaultValue": "wenwu449/pr-review",
+            "type": "string"
+        }
+    },
+    "variables": {
+        "logicapp_workflows_name": "vsts-pr-review",
+        "connections_aci_name": "aci",
+        "connections_servicebus_name": "servicebus",
+        "servicebus_namespaces_name": "[concat('vsts-pr-', uniqueString(resourceGroup().id))]",
+        "servicebus_topics_name": "vsts-pr-update",
+        "servicebus_subscriptions_name": "logicapp",
+        "authzRules_RootManageSharedAccessKey_name": "RootManageSharedAccessKey",
+        "authzRules_vsts_hook_name": "vsts-hook",
+        "authzRules_logic_listen_name": "logic-listen",
+        "container_share_name": "vstspr",
+        "container_config_path": "config",
+        "container_log_path": "logs",
+        "storage_account_name": "[concat('storage', uniqueString(resourceGroup().id))]",
+        "storage_file_share": "vsts-pr-review",
+        "storage_type": "Standard_LRS",
+        "aci_file_share_name": "aci-file-share"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Logic/workflows",
+            "name": "[variables('logicapp_workflows_name')]",
+            "apiVersion": "2017-07-01",
+            "location": "[parameters('location')]",
+            "properties": {
+                "state": "Enabled",
+                "definition": {
+                    "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {
+                        "$connections": {
+                            "defaultValue": {},
+                            "type": "Object"
+                        }
+                    },
+                    "triggers": {
+                        "vsts_pr_update_(peek-lock)": {
+                            "recurrence": {
+                                "frequency": "Minute",
+                                "interval": 3
+                            },
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['servicebus']['connectionId']"
+                                    }
+                                },
+                                "method": "get",
+                                "path": "[concat('/', variables('servicebus_topics_name'), '/subscriptions/', variables('servicebus_subscriptions_name'), '/messages/head/peek')]",
+                                "queries": {
+                                    "sessionId": "None",
+                                    "subscriptionType": "Main"
+                                }
+                            }
+                        }
+                    },
+                    "actions": {
+                        "Complete_the_message_in_a_topic_subscription": {
+                            "runAfter": {
+                                "Until": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['servicebus']['connectionId']"
+                                    }
+                                },
+                                "method": "delete",
+                                "path": "[concat('/', variables('servicebus_topics_name'), '/subscriptions/', variables('servicebus_subscriptions_name'), '/messages/complete')]",
+                                "queries": {
+                                    "lockToken": "@triggerBody()?['LockToken']",
+                                    "subscriptionType": "Main"
+                                }
+                            }
+                        },
+                        "Create_container_group": {
+                            "runAfter": {},
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "body": {
+                                    "location": "[parameters('location')]",
+                                    "properties": {
+                                        "containers": [
+                                            {
+                                                "name": "vstsprreview",
+                                                "properties": {
+                                                    "command": [
+                                                        "/bin/sh",
+                                                        "-c",
+                                                        "[concat('./pr-review | tee -a /var/pr/', variables('container_log_path'), '/log-@{utcnow(''yyyy-MM-ddTHH-mm-ss-fffffffK'')}')]"
+                                                    ],
+                                                    "environmentVariables": [
+                                                        {
+                                                            "name": "PR_CONTENT",
+                                                            "value": "@triggerBody()?['ContentData']"
+                                                        },
+                                                        {
+                                                            "name": "VSTS_CONFIG_PATH",
+                                                            "value": "[concat('/var/pr/', variables('container_config_path'), '/config.json')]"
+                                                        }
+                                                    ],
+                                                    "image": "[parameters('pr_review_image')]",
+                                                    "resources": {
+                                                        "requests": {
+                                                            "cpu": 1,
+                                                            "memoryInGB": 1.5
+                                                        }
+                                                    },
+                                                    "volumeMounts": [
+                                                        {
+                                                            "mountPath": "/var/pr",
+                                                            "name": "[variables('container_share_name')]",
+                                                            "readOnly": false
+                                                        }
+                                                    ]
+                                                }
+                                            }
+                                        ],
+                                        "osType": "Linux",
+                                        "restartPolicy": "OnFailure",
+                                        "volumes": [
+                                            {
+                                                "azureFile": {
+                                                    "readOnly": false,
+                                                    "shareName": "[variables('storage_file_share')]",
+                                                    "storageAccountKey": "[listKeys(variables('storage_account_name'),'2017-10-01').keys[0].value]",
+                                                    "storageAccountName": "[variables('storage_account_name')]"
+                                                },
+                                                "name": "[variables('container_share_name')]"
+                                            }
+                                        ]
+                                    },
+                                    "tags": {
+                                        "datetime": "@{utcNow()}"
+                                    }
+                                },
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['aci']['connectionId']"
+                                    }
+                                },
+                                "method": "put",
+                                "path": "[concat('/subscriptions/', subscription().subscriptionId, '/resourceGroups/', resourceGroup().name, '/providers/Microsoft.ContainerInstance/containerGroups/@{encodeURIComponent(''aci-'',triggerBody()?[''LockToken''])}')]",
+                                "queries": {
+                                    "x-ms-api-version": "2018-02-01-preview"
+                                }
+                            }
+                        },
+                        "Delete_container_group": {
+                            "runAfter": {
+                                "For_each": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "ApiConnection",
+                            "inputs": {
+                                "host": {
+                                    "connection": {
+                                        "name": "@parameters('$connections')['aci']['connectionId']"
+                                    }
+                                },
+                                "method": "delete",
+                                "path": "[concat('/subscriptions/', subscription().subscriptionId, '/resourceGroups/', resourceGroup().name, '/providers/Microsoft.ContainerInstance/containerGroups/@{encodeURIComponent(body(''Create_container_group'')?[''name''])}')]",
+                                "queries": {
+                                    "x-ms-api-version": "2018-02-01-preview"
+                                }
+                            }
+                        },
+                        "For_each": {
+                            "foreach": "@body('Get_properties_of_a_container_group')['properties']['containers']",
+                            "actions": {
+                                "Get_logs_of_a_container": {
+                                    "runAfter": {},
+                                    "type": "ApiConnection",
+                                    "inputs": {
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['aci']['connectionId']"
+                                            }
+                                        },
+                                        "method": "get",
+                                        "path": "[concat('/subscriptions/', subscription().subscriptionId, '/resourceGroups/', resourceGroup().name, '/providers/Microsoft.ContainerInstance/containerGroups/@{encodeURIComponent(body(''Create_container_group'')?[''name''])}/containers/@{encodeURIComponent(items(''For_each'')[''name''])}/logs')]",
+                                        "queries": {
+                                            "x-ms-api-version": "2018-02-01-preview"
+                                        }
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Until": [
+                                    "Failed",
+                                    "Succeeded"
+                                ]
+                            },
+                            "type": "Foreach"
+                        },
+                        "Until": {
+                            "actions": {
+                                "Delay_10s": {
+                                    "runAfter": {
+                                        "Get_properties_of_a_container_group": [
+                                            "Succeeded"
+                                        ]
+                                    },
+                                    "type": "Wait",
+                                    "inputs": {
+                                        "interval": {
+                                            "count": 10,
+                                            "unit": "Second"
+                                        }
+                                    }
+                                },
+                                "Get_properties_of_a_container_group": {
+                                    "runAfter": {},
+                                    "type": "ApiConnection",
+                                    "inputs": {
+                                        "host": {
+                                            "connection": {
+                                                "name": "@parameters('$connections')['aci']['connectionId']"
+                                            }
+                                        },
+                                        "method": "get",
+                                        "path": "[concat('/subscriptions/', subscription().subscriptionId, '/resourceGroups/', resourceGroup().name, '/providers/Microsoft.ContainerInstance/containerGroups/@{encodeURIComponent(body(''Create_container_group'')?[''name''])}')]",
+                                        "queries": {
+                                            "x-ms-api-version": "2018-02-01-preview"
+                                        }
+                                    }
+                                }
+                            },
+                            "runAfter": {
+                                "Create_container_group": [
+                                    "Succeeded"
+                                ]
+                            },
+                            "expression": "@equals(body('Get_properties_of_a_container_group')?['properties']?['instanceView']?['state'], 'Succeeded')",
+                            "limit": {
+                                "count": 60,
+                                "timeout": "PT5M"
+                            },
+                            "type": "Until"
+                        }
+                    },
+                    "outputs": {}
+                },
+                "parameters": {
+                    "$connections": {
+                        "value": {
+                            "aci": {
+                                "connectionId": "[resourceId('Microsoft.Web/connections', variables('connections_aci_name'))]",
+                                "connectionName": "aci",
+                                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('location'), '/managedApis/', variables('connections_aci_name'))]"
+                            },
+                            "servicebus": {
+                                "connectionId": "[resourceId('Microsoft.Web/connections', variables('connections_servicebus_name'))]",
+                                "connectionName": "servicebus",
+                                "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('location'), '/managedApis/', variables('connections_servicebus_name'))]"
+                            }
+                        }
+                    }
+                }
+            },
+            "dependsOn": [
+                "[resourceId('Microsoft.Web/connections', variables('connections_aci_name'))]",
+                "[resourceId('Microsoft.Web/connections', variables('connections_servicebus_name'))]",
+                "[resourceId('Microsoft.ContainerInstance/containerGroups', variables('aci_file_share_name'))]",
+                "[resourceId('Microsoft.ServiceBus/namespaces', variables('servicebus_namespaces_name'))]"
+            ]
+        },
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "name": "[variables('storage_account_name')]",
+            "apiVersion": "2017-10-01",
+            "location": "[parameters('location')]",
+            "sku": {
+                "name": "[variables('storage_type')]"
+            },
+            "kind": "Storage",
+            "properties": {}
+        },
+        {
+            "name": "[variables('aci_file_share_name')]",
+            "type": "Microsoft.ContainerInstance/containerGroups",
+            "apiVersion": "2018-02-01-preview",
+            "location": "[parameters('location')]",
+            "dependsOn": [
+                "[concat('Microsoft.Storage/storageAccounts/', variables('storage_account_name'))]"
+            ],
+            "properties": {
+                "containers": [
+                    {
+                        "name": "aci-file-share",
+                        "properties": {
+                            "image": "microsoft/azure-cli",
+                            "command": [
+                                "/bin/sh",
+                                "-c",
+                                "[concat('az storage share create -n ', variables('storage_file_share'), ' && az storage directory create -s ', variables('storage_file_share'), ' -n ', variables('container_config_path'), ' && az storage directory create -s ', variables('storage_file_share'), ' -n ', variables('container_log_path'))]"
+                            ],
+                            "environmentVariables": [
+                                {
+                                    "name": "AZURE_STORAGE_KEY",
+                                    "value": "[listKeys(variables('storage_account_name'),'2017-10-01').keys[0].value]"
+                                },
+                                {
+                                    "name": "AZURE_STORAGE_ACCOUNT",
+                                    "value": "[variables('storage_account_name')]"
+                                }
+                            ],
+                            "resources": {
+                                "requests": {
+                                    "cpu": 1.0,
+                                    "memoryInGb": 1.5
+                                }
+                            }
+                        }
+                    }
+                ],
+                "restartPolicy": "OnFailure",
+                "osType": "Linux"
+            }
+        },
+        {
+            "type": "Microsoft.Web/connections",
+            "name": "[variables('connections_aci_name')]",
+            "apiVersion": "2016-06-01",
+            "location": "[parameters('location')]",
+            "properties": {
+                "displayName": "[variables('connections_aci_name')]",
+                "customParameterValues": {},
+                "api": {
+                    "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('location'), '/managedApis/', variables('connections_aci_name'))]"
+                }
+            },
+            "dependsOn": []
+        },
+        {
+            "type": "Microsoft.Web/connections",
+            "name": "[variables('connections_servicebus_name')]",
+            "apiVersion": "2016-06-01",
+            "location": "[parameters('location')]",
+            "properties": {
+                "displayName": "[variables('connections_servicebus_name')]",
+                "customParameterValues": {},
+                "api": {
+                    "id": "[concat('/subscriptions/', subscription().subscriptionId, '/providers/Microsoft.Web/locations/', parameters('location'), '/managedApis/', variables('connections_servicebus_name'))]"
+                },
+                "parameterValues": {
+                    "connectionString": "[listKeys(resourceId('Microsoft.ServiceBus/namespaces/topics/authorizationRules', variables('servicebus_namespaces_name'), variables('servicebus_topics_name'), variables('authzRules_logic_listen_name')),'2017-04-01').primaryConnectionString]"
+                }
+            }
+        },
+        {
+            "type": "Microsoft.ServiceBus/namespaces",
+            "sku": {
+                "name": "Standard",
+                "tier": "Standard"
+            },
+            "properties": {},
+            "name": "[variables('servicebus_namespaces_name')]",
+            "apiVersion": "2017-04-01",
+            "location": "[parameters('location')]",
+            "resources": [
+                {
+                    "type": "AuthorizationRules",
+                    "name": "[variables('authzRules_RootManageSharedAccessKey_name')]",
+                    "apiVersion": "2017-04-01",
+                    "properties": {
+                        "rights": [
+                            "Listen",
+                            "Manage",
+                            "Send"
+                        ]
+                    },
+                    "dependsOn": [
+                        "[concat('Microsoft.ServiceBus/namespaces/', variables('servicebus_namespaces_name'))]"
+                    ]
+                },
+                {
+                    "type": "topics",
+                    "name": "[variables('servicebus_topics_name')]",
+                    "apiVersion": "2017-04-01",
+                    "properties": {
+                        "defaultMessageTimeToLive": "P14D"
+                    },
+                    "dependsOn": [
+                        "[concat('Microsoft.ServiceBus/namespaces/', variables('servicebus_namespaces_name'))]"
+                    ],
+                    "resources": [
+                        {
+                            "type": "authorizationRules",
+                            "name": "[variables('authzRules_vsts_hook_name')]",
+                            "apiVersion": "2017-04-01",
+                            "properties": {
+                                "rights": [
+                                    "Send"
+                                ]
+                            },
+                            "dependsOn": [
+                                "[variables('servicebus_topics_name')]"
+                            ]
+                        },
+                        {
+                            "type": "authorizationRules",
+                            "name": "[variables('authzRules_logic_listen_name')]",
+                            "apiVersion": "2017-04-01",
+                            "properties": {
+                                "rights": [
+                                    "Listen"
+                                ]
+                            },
+                            "dependsOn": [
+                                "[variables('servicebus_topics_name')]"
+                            ]
+                        },
+                        {
+                            "type": "subscriptions",
+                            "name": "[variables('servicebus_subscriptions_name')]",
+                            "apiVersion": "2017-04-01",
+                            "properties": {
+                                "lockDuration": "PT5M",
+                                "defaultMessageTimeToLive": "P14D"
+                            },
+                            "dependsOn": [
+                                "[variables('servicebus_topics_name')]"
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    ]
+}
