@@ -1,8 +1,13 @@
 ---
-services: containerinstances
-platforms: azure
-author: wenwu
+page_type: sample
+languages:
+- javascript
+products:
+- azure
+description: "A VSTS pull request review service, built on Azure Container Instance, Azure Logic App and Azure Service Bus."
+urlFragment: aci-vsts-pr-reviewer-logicapps-servicebus
 ---
+
 
 # vsts-pr-reviewer
 A VSTS pull request review service, built on Azure Container Instance, Azure Logic App and Azure Service Bus.
