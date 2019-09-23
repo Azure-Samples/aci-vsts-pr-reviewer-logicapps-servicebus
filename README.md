@@ -4,18 +4,19 @@ languages:
 - javascript
 products:
 - azure
-description: "A VSTS pull request review service, built on Azure Container Instance, Azure Logic App and Azure Service Bus."
-urlFragment: aci-vsts-pr-reviewer-logicapps-servicebus
+description: "An Azure Pipelines pull request review service, built on Azure Container Instance, Azure Logic App and Azure Service Bus."
+urlFragment: aci-azure-pipelines-pr-reviewer-logicapps-servicebus
 ---
 
 
-# vsts-pr-reviewer
-A VSTS pull request review service, built on Azure Container Instance, Azure Logic App and Azure Service Bus.
+# Azure Pipelines PR Reviewer
+
+An Azure Pipelines pull request review service, built on Azure Container Instance, Azure Logic App and Azure Service Bus.
 
 <img src="images/review_bot.png" width="75%">
 
 # How it works
-When a VSTS pull request is created or updated, VSTS sends a notification to an Azure Service Bus topic. As a subscriber of the topic, an Azure Logic App starts an Azure Container Instance upon getting the notification. The container in Azure Container Instance utilizes VSTS REST API to check the changes in the pull request, leave comments and vote approve/wait.
+When a Azure Pipelines pull request is created or updated, Azure Pipelines sends a notification to an Azure Service Bus topic. As a subscriber of the topic, an Azure Logic App starts an Azure Container Instance upon getting the notification. The container in Azure Container Instance utilizes Azure Pipelines REST API to check the changes in the pull request, leave comments and vote approve/wait.
 
 ![](images/vsts-pr-reviewer.png)
 
@@ -52,11 +53,11 @@ Sign in with user account or service pricipal.
 
 Click "Save" button to save the changes.
 
-## Configure VSTS
+## Configure Azure Pipelines
 
 ### Configure Service Hook
 
-[Service hooks](https://docs.microsoft.com/en-us/vsts/service-hooks/overview?view=vsts) enable you to perform tasks on other services when events happen in your VSTS projects. We will configure service hook so that message will be sent to Serivce Bus Topic when pull request is created.
+[Service hooks](https://docs.microsoft.com/en-us/vsts/service-hooks/overview?view=vsts) enable you to perform tasks on other services when events happen in your Azure Pipelines projects. We will configure service hook so that message will be sent to Serivce Bus Topic when pull request is created.
 
 1. Get service bus topic connection string with commands, `<resource-group-name>` is the name of resource group used for ARM template deployment:
 ```
@@ -66,7 +67,7 @@ az servicebus topic authorization-rule keys list -g $groupName --namespace-name 
 ```
 Copy the connection string. You will need to provide this value when creating a Service Hook subscription.
 
-2. Go to VSTS project to configure service hook.
+2. Go to Azure Pipelines project to configure service hook.
 
 Click "Create subscription"
 
@@ -86,9 +87,9 @@ Optionally, another subscription can be created to send message when a pull requ
 
 ### Get VSTS personal access token
 
-The reviewer application running in Azure Container Instance uses a VSTS [personal access token](https://docs.microsoft.com/en-us/vsts/integrate/get-started/authentication/pats?view=vsts) to read, comment and vote on a pull request.
+The reviewer application running in Azure Container Instance uses a Azure Pipelines [personal access token](https://docs.microsoft.com/en-us/vsts/integrate/get-started/authentication/pats?view=vsts) to read, comment and vote on a pull request.
 
-Log in VSTS, go to your security details.
+Log in Azure Pipelines, go to your security details.
 
 ![](https://docs.microsoft.com/en-us/vsts/git/_shared/_img/my-profile-team-services.png?view=vsts)
 
@@ -106,9 +107,9 @@ When you're done, make sure to copy the token. You'll use this token in next ste
 
 ## Upload VSTS config
 
-The reviewer application running in Azure Container Instance reads configuration file on an Azure Storage File Share to get the personal access token and other VSTS information. 
+The reviewer application running in Azure Container Instance reads configuration file on an Azure Storage File Share to get the personal access token and other Azure Pipelines information. 
 
-Download the [config.json](https://raw.githubusercontent.com/wenwu449/vsts-pr-review-sample/master/config.json) as a template, change the value according to your VSTS project.
+Download the [config.json](https://raw.githubusercontent.com/wenwu449/vsts-pr-review-sample/master/config.json) as a template, change the value according to your Azure Pipelines project.
 
 *userId can be get via [Accounts](https://docs.microsoft.com/en-us/rest/api/vsts/account/accounts/list) API ( `accountId` in response ) or [Get Pull Request](https://docs.microsoft.com/en-us/rest/api/vsts/git/pull%20requests/get%20pull%20request) API ( `createdBy.Id` in response )*
 
