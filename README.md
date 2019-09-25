@@ -13,7 +13,7 @@ urlFragment: aci-azure-pipelines-pr-reviewer-logicapps-servicebus
 
 An Azure Pipelines pull request review service, built on Azure Container Instance, Azure Logic App and Azure Service Bus.
 
-<img src="images/review_bot.png" width="75%">
+![](images/review_bot.png)
 
 # How it works
 When a Azure Pipelines pull request is created or updated, Azure Pipelines sends a notification to an Azure Service Bus topic. As a subscriber of the topic, an Azure Logic App starts an Azure Container Instance upon getting the notification. The container in Azure Container Instance utilizes Azure Pipelines REST API to check the changes in the pull request, leave comments and vote approve/wait.
@@ -37,19 +37,19 @@ To grant Logic App the permission to create Container Instance, we need to autho
 
 After deployment, navigate to the resource group in Azure portal, open the logic app resource:
 
-<img src="images/authz_aci_1.png" width="75%">
+![](images/authz_aci_1.png)
 
 Open designer (click "Edit" button), click "Connections" in the flow:
 
-<img src="images/authz_aci_2.png" width="75%">
+![](images/authz_aci_2.png)
 
 Click "Invalid connection" to configure connection:
 
-<img src="images/authz_aci_3.png" width="75%">
+![](images/authz_aci_3.png)
 
 Sign in with user account or service pricipal.
 
-<img src="images/authz_aci_4.png" width="75%">
+![](images/authz_aci_4.png)
 
 Click "Save" button to save the changes.
 
@@ -71,17 +71,17 @@ Copy the connection string. You will need to provide this value when creating a 
 
 Click "Create subscription"
 
-![](https://docs.microsoft.com/en-us/vsts/service-hooks/services/_img/add-service-hook.png)
+![](https://docs.microsoft.com/vsts/service-hooks/services/_img/add-service-hook.png)
 
 Select "Azure Service Bus" and click "Next".
 
 Select "Pull Request created" trigger, configure "Repository", "Target branch" and other filters if applies, click "Next".
 
-<img src="images/vsts_service_hook_1.png" width="75%">
+![](images/vsts_service_hook_1.png)
 
 Select "Send a message to a Service Bus Topic" at "Perform this action", input the connection string got in step 1 at "SAS connection string", input "vsts-pr-update" at "Topic name", click "Test" to test, then click "Finsh".
 
-<img src="images/vsts_service_hook_2.png" width="75%">
+![](images/vsts_service_hook_2.png)
 
 Optionally, another subscription can be created to send message when a pull request is updated.
 
@@ -91,15 +91,15 @@ The reviewer application running in Azure Container Instance uses a Azure Pipeli
 
 Log in Azure Pipelines, go to your security details.
 
-![](https://docs.microsoft.com/en-us/vsts/git/_shared/_img/my-profile-team-services.png?view=vsts)
+![](https://docs.microsoft.com/vsts/git/_shared/_img/my-profile-team-services.png?view=vsts)
 
 Create a personal access token
 
-![](https://docs.microsoft.com/en-us/vsts/git/_shared/_img/add-personal-access-token.png?view=vsts)
+![](https://docs.microsoft.com/vsts/git/_shared/_img/add-personal-access-token.png?view=vsts)
 
 Select the "Code (read and write)" scope for the token, click "Save"
 
-<img src="images/vsts_pat.png" width>
+![](images/vsts_pat.png)
 
 When you're done, make sure to copy the token. You'll use this token in next step.
 
@@ -115,18 +115,18 @@ Download the [config.json](https://raw.githubusercontent.com/wenwu449/vsts-pr-re
 
 Use Azure Portal to upload the `config.json` file to Azure Storage File Share, navigate to the resource group in Azure portal, open the storage resource (resource name may vary):
 
-<img src="images/share_upload_1.png">
+![](images/share_upload_1.png)
 
 Click "Files",
 
-<img src="images/share_upload_2.png">
+![](images/share_upload_2.png)
 
 Click "vsts-pr-preview", then click "config",
 
-<img src="images/share_upload_3.png">
+![](images/share_upload_3.png)
 
 Click "Upload", use the file upload control to upload the `config.json` file.
 
-<img src="images/share_upload_4.png">
+![](images/share_upload_4.png)
 
 Now your pull request review service is up and running!
